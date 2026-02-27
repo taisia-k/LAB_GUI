@@ -3,6 +3,12 @@ import java.util.*;
 public class GasStationSim {
     public static void main(String[] args) {
         Config cfg = new Config();
+        cfg.seed = 7;
+        cfg.initFuel = 5000;
+        cfg.maxFuel = 6000;
+        cfg.delivInt = 48 * 60;
+        cfg.delivVol = 3000;
+        cfg.flow = 10.0;
         Sim sim = new Sim(cfg);
         sim.run();
         sim.stats();
@@ -32,13 +38,9 @@ class Car {
     double arr;
     double start;
     double end;
-
     Car(int id, double tank, double level, double need, double arr) {
-        this.id = id;
-        this.tank = tank;
-        this.level = level;
-        this.need = need;
-        this.arr = arr;
+        this.id = id; this.tank = tank; this.level = level;
+        this.need = need; this.arr = arr;
     }
 }
 
@@ -48,97 +50,48 @@ class Pump {
     boolean busy;
     Car car;
     double totalBusy;
-
-    Pump(int id, double flow) {
-        this.id = id;
-        this.flow = flow;
-    }
+    Pump(int id, double flow) { this.id = id; this.flow = flow; }
 }
 
 class Event implements Comparable<Event> {
-    double time;
-    String type;
-    Pump pump;
-    Car car;
-
-    Event(double time, String type) {
-        this(time, type, null, null);
-    }
-
-    Event(double time, String type, Pump pump) {
-        this(time, type, pump, null);
-    }
-
-    Event(double time, String type, Pump pump, Car car) {
-        this.time = time;
-        this.type = type;
-        this.pump = pump;
-        this.car = car;
-    }
-
-    public int compareTo(Event o) {
-        return Double.compare(this.time, o.time);
-    }
+    double time; String type; Pump pump; Car car;
+    Event(double t, String ty) { this(t, ty, null, null); }
+    Event(double t, String ty, Pump p) { this(t, ty, p, null); }
+    Event(double t, String ty, Pump p, Car c) { time = t; type = ty; pump = p; car = c; }
+    public int compareTo(Event o) { return Double.compare(time, o.time); }
 }
 
 class Sim {
-    Config cfg;
-    Random rand;
-    double time;
-    List<Pump> pumps;
-    Queue<Car> queue;
-    double fuel;
-    double lastDeliv;
-    boolean pumpOpenScheduled;
-    double expansionTriggerTime;
+    Config cfg; Random rand; double time;
+    List<Pump> pumps; Queue<Car> queue; double fuel;
+    boolean pumpOpenScheduled; double expansionTriggerTime;
     PriorityQueue<Event> events;
-
-    int carCnt;
-    int served;
-    int refused;
-    List<Double> waitTimes;
-    List<Double> serviceTimes;
-    double maxWait;
-    int maxQLen;
-    int pumpOpens;
-    int delivCnt;
-    List<double[]> fuelHist;
-    double minFuel;
+    int carCnt, served, refused;
+    List<Double> waitTimes, serviceTimes;
+    double maxWait; int maxQLen; int pumpOpens; int delivCnt;
+    List<double[]> fuelHist; double minFuel;
     Map<Integer, Double> pumpUtil;
 
     Sim(Config cfg) {
         this.cfg = cfg;
-        this.rand = new Random(cfg.seed);
-        this.time = 0.0;
-        this.pumps = new ArrayList<>();
-        for (int i = 0; i < cfg.initPumps; i++) {
-            pumps.add(new Pump(i, cfg.flow));
-        }
-        this.queue = new LinkedList<>();
-        this.fuel = cfg.initFuel;
-        this.lastDeliv = 0.0;
-        this.pumpOpenScheduled = false;
-        this.expansionTriggerTime = -1e9;
-        this.events = new PriorityQueue<>();
-        events.add(new Event(0.0, "arrival"));
-        events.add(new Event(cfg.delivInt, "delivery"));
-
-        this.carCnt = 0;
-        this.served = 0;
-        this.refused = 0;
-        this.waitTimes = new ArrayList<>();
-        this.serviceTimes = new ArrayList<>();
-        this.maxWait = 0.0;
-        this.maxQLen = 0;
-        this.pumpOpens = 0;
-        this.delivCnt = 0;
-        this.fuelHist = new ArrayList<>();
-        fuelHist.add(new double[]{0.0, cfg.initFuel});
-        this.minFuel = cfg.initFuel;
-        this.pumpUtil = new HashMap<>();
-        for (Pump p : pumps) {
-            pumpUtil.put(p.id, 0.0);
-        }
+        rand = new Random(cfg.seed);
+        time = 0;
+        pumps = new ArrayList<>();
+        for (int i = 0; i < cfg.initPumps; i++) pumps.add(new Pump(i, cfg.flow));
+        queue = new LinkedList<>();
+        fuel = cfg.initFuel;
+        pumpOpenScheduled = false;
+        expansionTriggerTime = -1e9;
+        events = new PriorityQueue<>();
+        events.add(new Event(0, "arrival"));
+        events.add(new Event(cfg.delivInt, "delivery_arrival"));
+        carCnt = 0; served = 0; refused = 0;
+        waitTimes = new ArrayList<>(); serviceTimes = new ArrayList<>();
+        maxWait = 0; maxQLen = 0; pumpOpens = 0; delivCnt = 0;
+        fuelHist = new ArrayList<>(); fuelHist.add(new double[]{0, cfg.initFuel});
+        minFuel = cfg.initFuel;
+        pumpUtil = new HashMap<>();
+        for (Pump p : pumps) pumpUtil.put(p.id, 0.0);
     }
 
     double lam(double t) {
@@ -158,18 +111,16 @@ class Sim {
 
     Car genCar() {
         carCnt++;
-        double[] tanks = {40, 50, 60, 70, 80};
+        double[] tanks = {40,50,60,70,80};
         double tank = tanks[rand.nextInt(tanks.length)];
         double level = tank * (0.1 + 0.8 * rand.nextDouble());
-        double need = 5 + rand.nextDouble() * (tank - level - 5);
-        if (need > tank - level) need = tank - level;
+        double maxNeed = tank - level;
+        double need = maxNeed < 5 ? maxNeed : 5 + rand.nextDouble() * (maxNeed - 5);
         return new Car(carCnt, tank, level, need, time);
     }
 
     Pump freePump() {
-        for (Pump p : pumps) {
-            if (!p.busy) return p;
-        }
+        for (Pump p : pumps) if (!p.busy) return p;
         return null;
     }
 
@@ -182,7 +133,6 @@ class Sim {
             schedulePumpOpen();
             expansionTriggerTime = time;
         }
-
         double serveT = c.need / p.flow;
         serviceTimes.add(serveT);
         c.end = time + serveT;
@@ -204,17 +154,14 @@ class Sim {
             Event e = events.poll();
             time = e.time;
             if (time > endTime) break;
-
             switch (e.type) {
                 case "arrival": {
                     Car c = genCar();
-                    if (fuel < c.need) {
-                        refused++;
-                    } else {
+                    if (fuel < c.need) refused++;
+                    else {
                         Pump p = freePump();
-                        if (p != null) {
-                            startServe(p, c);
-                        } else {
+                        if (p != null) startServe(p, c);
+                        else {
                             queue.add(c);
                             if (queue.size() > maxQLen) maxQLen = queue.size();
                         }
@@ -234,19 +181,20 @@ class Sim {
                     p.car = null;
                     if (!queue.isEmpty()) {
                         Car nxt = queue.poll();
-                        if (fuel >= nxt.need) {
-                            startServe(p, nxt);
-                        } else {
-                            refused++;
-                        }
+                        if (fuel >= nxt.need) startServe(p, nxt);
+                        else refused++;
                     }
                     break;
                 }
-                case "delivery": {
+                case "delivery_arrival": {
+                    events.add(new Event(time + cfg.delivDur, "delivery_complete"));
+                    events.add(new Event(time + cfg.delivInt, "delivery_arrival"));
+                    break;
+                }
+                case "delivery_complete": {
                     fuel = Math.min(fuel + cfg.delivVol, cfg.maxFuel);
                     fuelHist.add(new double[]{time, fuel});
                     delivCnt++;
-                    events.add(new Event(time + cfg.delivInt, "delivery"));
                     break;
                 }
                 case "pump_open": {
@@ -263,11 +211,8 @@ class Sim {
                                     Pump free = freePump();
                                     if (free != null) {
                                         Car nxt = queue.poll();
-                                        if (fuel >= nxt.need) {
-                                            startServe(free, nxt);
-                                        } else {
-                                            refused++;
-                                        }
+                                        if (fuel >= nxt.need) startServe(free, nxt);
+                                        else refused++;
                                     }
                                 }
                             }
@@ -277,17 +222,15 @@ class Sim {
                 }
             }
         }
-
         for (Pump p : pumps) {
             pumpUtil.put(p.id, p.totalBusy / (cfg.simDays * 24 * 60) * 100);
         }
     }
 
     void stats() {
-        double avgWait = waitTimes.stream().mapToDouble(d -> d).average().orElse(0);
-        double avgServ = serviceTimes.stream().mapToDouble(d -> d).average().orElse(0);
-        double avgFuel = fuelHist.stream().mapToDouble(arr -> arr[1]).average().orElse(0);
-
+        double avgWait = waitTimes.stream().mapToDouble(d->d).average().orElse(0);
+        double avgServ = serviceTimes.stream().mapToDouble(d->d).average().orElse(0);
+        double avgFuel = fuelHist.stream().mapToDouble(a->a[1]).average().orElse(0);
         System.out.println("=== Результаты симуляции АЗС (" + cfg.simDays + " дней) ===");
         System.out.println("Прибыло автомобилей: " + carCnt);
         System.out.println("Обслужено: " + served);
