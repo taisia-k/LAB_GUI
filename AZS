@@ -1,5 +1,14 @@
 import java.util.*;
 
+public class GasStationSim {
+    public static void main(String[] args) {
+        Config cfg = new Config();
+        Sim sim = new Sim(cfg);
+        sim.run();
+        sim.stats();
+    }
+}
+
 class Config {
     int simDays = 7;
     int initPumps = 2;
@@ -298,12 +307,5 @@ class Sim {
             System.out.printf(" #%d: %.0f%%", e.getKey(), e.getValue());
         }
         System.out.println();
-    }
-
-    public static void main(String[] args) {
-        Config cfg = new Config();
-        Sim sim = new Sim(cfg);
-        sim.run();
-        sim.stats();
     }
 }
