@@ -307,4 +307,3 @@ class Sim {
         sim.stats();
     }
 }
-```
