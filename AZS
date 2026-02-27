@@ -3,12 +3,12 @@ import java.util.*;
 public class GasStationSim {
     public static void main(String[] args) {
         Config cfg = new Config();
-        cfg.seed = 7;
-        cfg.initFuel = 5000;
-        cfg.maxFuel = 6000;
-        cfg.delivInt = 48 * 60;
+        cfg.seed = 15;
+        cfg.flow = 15.0;
+        cfg.initFuel = 3000;
+        cfg.maxFuel = 5000;
+        cfg.delivInt = 36 * 60;
         cfg.delivVol = 3000;
-        cfg.flow = 10.0;
         Sim sim = new Sim(cfg);
         sim.run();
         sim.stats();
@@ -138,6 +138,7 @@ class Sim {
         c.end = time + serveT;
         p.busy = true;
         p.car = c;
+        p.totalBusy += serveT;
         events.add(new Event(c.end, "service_end", p, c));
     }
 
